@@ -1,0 +1,37 @@
+{
+  "name": "efficient-frontier-optimizer",
+  "version": "1.0.0",
+  "description": "Mean-variance portfolio optimization with exact constrained solving, data-driven shrinkage, and out-of-sample validation. Zero runtime dependencies.",
+  "main": "portfolio-core.js",
+  "scripts": {
+    "test": "node portfolio-core.test.js && node data-pipeline.test.js && node fetch-market-data.test.js && node backtest.test.js && node scenarios.test.js && node black-litterman.test.js && node sentiment-value.test.js && node fetch-news-sentiment.test.js",
+    "test:core": "node portfolio-core.test.js",
+    "test:data": "node data-pipeline.test.js",
+    "test:fetch": "node fetch-market-data.test.js",
+    "test:backtest": "node backtest.test.js",
+    "test:scenarios": "node scenarios.test.js",
+    "verify:bundle": "node bundle-runtime-check.js",
+    "verify:findings": "node reproduce-findings.js",
+    "verify": "npm test && npm run verify:bundle && npm run verify:findings",
+    "fetch": "node fetch-market-data.js",
+    "test:black-litterman": "node black-litterman.test.js",
+    "test:sentiment": "node sentiment-value.test.js",
+    "test:news": "node fetch-news-sentiment.test.js",
+    "fetch:news": "node fetch-news-sentiment.js"
+  },
+  "keywords": [
+    "portfolio-optimization",
+    "markowitz",
+    "efficient-frontier",
+    "quadratic-programming",
+    "ledoit-wolf",
+    "backtesting",
+    "quantitative-finance"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

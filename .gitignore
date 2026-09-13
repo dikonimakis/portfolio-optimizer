@@ -1,0 +1,7 @@
+node_modules/
+dist/
+
+# Fetched/generated data artifacts — regenerable via the documented fetch
+# commands in README.md, not source. Keep them locally, don't version them.
+prices*.csv
+sentiment.json

@@ -1,0 +1,18 @@
+{
+  "name": "dashboard-preview",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Local dev-server harness to run portfolio-optimizer.jsx in a browser. Not part of the library itself (which stays zero-dependency) — this is preview tooling only.",
+  "scripts": {
+    "dev": "vite --port 5173"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.8"
+  }
+}
