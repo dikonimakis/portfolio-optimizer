@@ -17,6 +17,19 @@
 //   node fetch-market-data.js --source=stooq --tickers=SPY,AGG,GLD --out=prices.csv
 //   node fetch-market-data.js --source=alphavantage --tickers=SPY,AGG --key=YOUR_KEY
 //   node fetch-market-data.js --source=tiingo --tickers=SPY,AGG --key=YOUR_TOKEN
+//   node fetch-market-data.js --source=tiingocrypto --tickers=btcusd,ethusd --key=YOUR_TOKEN
+//
+// A NOTE ON MIXING CRYPTO WITH STOCKS/BONDS
+//   Crypto trades every calendar day; stocks/bonds trade ~252 weekdays a
+//   year. This script only ever fetches one asset class per run, so it
+//   cannot silently mix the two calendars itself — but if you fetch each
+//   separately and then combine the two CSVs yourself before feeding them
+//   to data-pipeline.js, its date-intersection logic will keep only the
+//   weekday dates common to both, discarding crypto's weekend price moves
+//   from the volatility/correlation estimate. That is a real distortion,
+//   not a bug this script can fix for you: decide deliberately whether you
+//   want that behavior (comparable, weekday-only estimates) or a different
+//   convention (e.g. resampling crypto onto its own calendar).
 //
 // SOURCES
 //   stooq         No key required in principle, but as of live testing in
@@ -52,14 +65,55 @@
 //                 latest quote. This script always sends a startDate
 //                 (defaulting to 1900-01-01) so --source=tiingo with no
 //                 --start still gets full history rather than silently one row.
+//   tiingocrypto  Same free token as tiingo, different endpoint
+//                 (tiingo/crypto/prices), different response shape, and
+//                 different quirks — confirmed via live testing in 2026-09:
+//                 - Tickers are exchange pairs, lowercase, e.g. "btcusd",
+//                   "ethusd" — not bare symbols.
+//                 - Response is an array with one entry per ticker, each
+//                   holding a nested `priceData` array — not the flat array
+//                   the equities endpoint returns.
+//                 - An unknown ticker comes back as HTTP 200 with an EMPTY
+//                   array, not a 404 + detail like tiingo's equities endpoint.
+//                 - There is no adjusted-close field (no splits/dividends
+//                   for crypto), so --adjusted has no effect on this source.
+//                 - Omitting startDate does not return full history either
+//                   — it returns only a partial day of recent intraday bars.
+//                   Omitting resampleFreq while passing an old startDate can
+//                   silently return an empty array. This script always sends
+//                   both explicitly (resampleFreq default "1day").
+//                 - THE BIG ONE: the free tier silently caps a single request
+//                   at roughly 5,000 daily rows, truncating from the END
+//                   (most recent data), not the start. Requesting BTC from
+//                   its real 2011-08-19 inception returns data that stops
+//                   in 2023 — over 3 years stale — while requesting from
+//                   2015-01-01 reaches today. "Ask for the earliest possible
+//                   date" is backwards here. This script defaults startDate
+//                   to ~10 years back from today (not an arbitrarily early
+//                   date) for exactly that reason; it does not paginate
+//                   around the cap, so anyone wanting more than ~10-13 years
+//                   of daily crypto history needs to fetch it in chunks
+//                   themselves and verify each chunk's actual end date.
+//                 - Daily history genuinely goes back to each asset's real
+//                   start (BTC to 2011-08-19, ETH to 2015-08-08, confirmed
+//                   live within the row cap) — and even that early daily
+//                   history has real gaps (missing days), unlike equities'
+//                   regular weekday calendar.
+//                 - Free tier goes down to 1-minute bars (confirmed live),
+//                   far finer than the daily-only equities sources — but
+//                   this script's CSV format is one row per calendar date,
+//                   so requesting sub-daily resampleFreq here will silently
+//                   collapse to one (the last) bar per day. Fine-grained
+//                   data is a different feature (a live price ticker) from
+//                   what this script's output feeds (periodic estimation).
 //
 // TESTING NOTE
 //   Everything that interprets a provider's response is a pure function
-//   (parseStooqCSV, parseAlphaVantageJSON, parseTiingoJSON, alignSeries,
-//   buildCSV) and is covered by fetch-market-data.test.js. Verified against
-//   all three providers' live endpoints in 2026-09 (see findings above);
-//   provider policies can change again, so re-verify if a source starts
-//   failing.
+//   (parseStooqCSV, parseAlphaVantageJSON, parseTiingoJSON,
+//   parseTiingoCryptoJSON, alignSeries, buildCSV) and is covered by
+//   fetch-market-data.test.js. Verified against all four providers' live
+//   endpoints in 2026-09 (see findings above); provider policies can change
+//   again, so re-verify if a source starts failing.
 // ============================================================================
 
 const fs = require("fs");
@@ -81,24 +135,34 @@ function usage(msg) {
   if (msg) console.error(`\nError: ${msg}`);
   console.error(`
 Usage:
-  node fetch-market-data.js --source=<stooq|alphavantage|tiingo> --tickers=A,B,C [options]
+  node fetch-market-data.js --source=<stooq|alphavantage|tiingo|tiingocrypto> --tickers=A,B,C [options]
 
 Options:
   --source=NAME       Data provider. Default: stooq
   --tickers=LIST      Comma-separated symbols. Required, at least two.
+                      tiingocrypto tickers are lowercase exchange pairs, e.g.
+                      btcusd,ethusd — not bare symbols.
   --out=FILE          Output path. Default: prices.csv
-  --key=KEY           API key/token. Required for alphavantage and tiingo.
-  --start=YYYY-MM-DD  Earliest date to keep. Optional. Also passed to Tiingo
-                      as startDate, so it need not fetch history it will
-                      discard.
+  --key=KEY           API key/token. Required for alphavantage, tiingo, and
+                      tiingocrypto (same token as tiingo).
+  --start=YYYY-MM-DD  Earliest date to keep. Optional. Also passed to Tiingo/
+                      tiingocrypto as startDate, so it need not fetch history
+                      it will discard.
   --adjusted          Use split/dividend-adjusted closes where available.
                       (Alpha Vantage: premium-only as of 2026-09 — will fail
                       with a clear error on a free key. Tiingo: works on the
-                      free tier.)
+                      free tier. tiingocrypto: no effect — crypto has no
+                      splits/dividends to adjust for.)
   --full              alphavantage only: request outputsize=full (premium-only
                       as of 2026-09). Default is compact (~100 observations).
-                      tiingo always fetches full history (from 1900-01-01, or
-                      --start) regardless of this flag.
+                      tiingo/tiingocrypto always fetch full history (from
+                      --start, or a provider-appropriate default) regardless
+                      of this flag.
+  --resample=FREQ     tiingocrypto only: Tiingo's resampleFreq. Default:
+                      1day. This script writes one CSV row per calendar date,
+                      so a sub-daily value silently collapses to the last bar
+                      of each day — fine granularity is a different feature
+                      (a live ticker) from what this CSV feeds.
 `);
   process.exit(1);
 }
@@ -195,6 +259,40 @@ function parseTiingoJSON(body, status, adjusted, ticker = "series") {
   return out;
 }
 
+// Tiingo's crypto endpoint has a genuinely different shape from its equities
+// endpoint: a JSON array with one entry PER TICKER (even for a single
+// ticker), each holding a nested `priceData` array of bars, rather than a
+// flat array of bars. It also signals "not found" as HTTP 200 with an EMPTY
+// array, not a 404 + detail like the equities endpoint — both measured live.
+// There is no adjusted-close concept for crypto (no splits/dividends).
+function parseTiingoCryptoJSON(body, status, ticker = "series") {
+  let json;
+  try { json = typeof body === "string" ? JSON.parse(body) : body; }
+  catch (e) { throw new Error(`Tiingo returned non-JSON for "${ticker}".`); }
+
+  if (status !== 200) {
+    const detail = json && typeof json === "object" && json.detail;
+    throw new Error(`Tiingo: ${detail || `HTTP ${status}`} (ticker "${ticker}").`);
+  }
+  if (!Array.isArray(json)) throw new Error(`Unexpected Tiingo crypto format for "${ticker}": not an array.`);
+  if (json.length === 0) {
+    throw new Error(`Tiingo returned no data for "${ticker}". Crypto tickers are exchange pairs (e.g. "btcusd"), not bare symbols — check the format.`);
+  }
+
+  const priceData = Array.isArray(json[0].priceData) ? json[0].priceData : [];
+  if (priceData.length === 0) throw new Error(`Tiingo returned no price data for "${ticker}".`);
+
+  const out = new Map();
+  for (const row of priceData) {
+    if (!row || typeof row.date !== "string") continue;
+    const date = row.date.slice(0, 10);
+    const v = parseFloat(row.close);
+    if (date && Number.isFinite(v) && v > 0) out.set(date, v);
+  }
+  if (out.size === 0) throw new Error(`No usable closes for "${ticker}".`);
+  return out;
+}
+
 // Keeps only dates present for EVERY ticker. Forward-filling would be easier
 // but understates volatility and correlation, flattering the portfolio.
 function alignSeries(seriesByTicker, startDate) {
@@ -271,6 +369,41 @@ async function fetchTiingo(ticker, key, adjusted, startDate) {
   return parseTiingoJSON(body, status, adjusted, ticker);
 }
 
+async function fetchTiingoCrypto(ticker, key, startDate, resampleFreq) {
+  // MEASURED (2026-09): omitting startDate returns only a partial day of
+  // recent intraday bars, not full history; omitting resampleFreq while
+  // passing an old startDate can silently return an empty array. Both are
+  // always sent explicitly for that reason.
+  //
+  // A THIRD, more serious gotcha: the free tier silently caps a single
+  // request at roughly 5,000 daily rows, and truncates from the END (most
+  // recent data), not the start. Requesting BTC from its real 2011-08-19
+  // inception returned data that stopped at 2023-09-10 — three-year-stale
+  // — while requesting from 2015-01-01 reached today. So "ask for the
+  // earliest possible date to get full history" is exactly backwards here:
+  // it silently loses the recent past instead. Defaulting to ~10 years back
+  // (comfortably under the cap for one asset) rather than an arbitrarily
+  // early date, so --source=tiingocrypto with no --start reaches today.
+  // Anyone wanting deeper history than that should pass --start explicitly
+  // and verify the resulting end date themselves — this script does not
+  // paginate around the cap.
+  let defaultStart = startDate;
+  if (!defaultStart) {
+    const d = new Date();
+    d.setUTCFullYear(d.getUTCFullYear() - 10);
+    defaultStart = d.toISOString().slice(0, 10);
+  }
+  const params = new URLSearchParams({
+    tickers: ticker.toLowerCase(),
+    token: key,
+    startDate: defaultStart,
+    resampleFreq: resampleFreq || "1day",
+  });
+  const url = `https://api.tiingo.com/tiingo/crypto/prices?${params.toString()}`;
+  const { status, body } = await get(url);
+  return parseTiingoCryptoJSON(body, status, ticker);
+}
+
 // ---------------------------------------------------------------- main
 
 async function main() {
@@ -280,15 +413,18 @@ async function main() {
   if (!args.tickers) usage("--tickers is required.");
   const tickers = String(args.tickers).split(",").map((t) => t.trim()).filter(Boolean);
   if (tickers.length < 2) usage("Give at least two tickers — a portfolio of one has nothing to optimize.");
-  if (!["stooq", "alphavantage", "tiingo"].includes(source)) usage(`Unknown source "${source}".`);
-  if ((source === "alphavantage" || source === "tiingo") && !args.key) usage(`--key is required for ${source}.`);
+  if (!["stooq", "alphavantage", "tiingo", "tiingocrypto"].includes(source)) usage(`Unknown source "${source}".`);
+  if (["alphavantage", "tiingo", "tiingocrypto"].includes(source) && !args.key) usage(`--key is required for ${source}.`);
 
   const outPath = args.out || "prices.csv";
   const adjusted = !!args.adjusted;
 
-  if (!adjusted) {
+  if (!adjusted && source !== "tiingocrypto") {
     console.log("Note: fetching unadjusted closes. Splits and dividends will appear as");
     console.log("      spurious large returns. Pass --adjusted if your source supports it.\n");
+  }
+  if (adjusted && source === "tiingocrypto") {
+    console.log("Note: --adjusted has no effect for tiingocrypto — crypto has no splits/dividends.\n");
   }
 
   const seriesByTicker = [];
@@ -298,6 +434,7 @@ async function main() {
     try {
       const series = source === "stooq" ? await fetchStooq(t)
         : source === "tiingo" ? await fetchTiingo(t, args.key, adjusted, args.start)
+        : source === "tiingocrypto" ? await fetchTiingoCrypto(t, args.key, args.start, args.resample)
         : await fetchAlphaVantage(t, args.key, adjusted, !!args.full);
       seriesByTicker.push({ ticker: t, series });
       console.log(`${series.size} rows`);
@@ -342,7 +479,10 @@ async function main() {
   console.log(`    console.log(e.names, e.mu, e.vols); e.quality.warnings.forEach(w=>console.log(w));"`);
 }
 
-module.exports = { parseStooqCSV, parseAlphaVantageJSON, parseTiingoJSON, alignSeries, buildCSV, parseArgs };
+module.exports = {
+  parseStooqCSV, parseAlphaVantageJSON, parseTiingoJSON, parseTiingoCryptoJSON,
+  alignSeries, buildCSV, parseArgs,
+};
 
 if (require.main === module) {
   main().catch((e) => {

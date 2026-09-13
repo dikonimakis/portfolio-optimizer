@@ -108,6 +108,17 @@ function pricesToReturns(prices, method = "log") {
 const PERIODS = { daily: 252, weekly: 52, monthly: 12, quarterly: 4, annual: 1 };
 
 // Infers observation frequency from the median gap between dates.
+//
+// A median gap of ~1 day is ambiguous by itself: a weekday-only market
+// (stocks/bonds, 252 periods/year) and a genuine 24/7 calendar (crypto, 365
+// periods/year) both produce a median gap of exactly 1 day. Distinguished by
+// what FRACTION of gaps are exactly 1 day: a weekday market has a multi-day
+// (weekend) gap roughly one week in five, plus occasional holidays, so at
+// least ~10% of gaps exceed 1 day over any reasonably long sample. A 24/7
+// calendar has virtually none. This only applies with enough gaps to be
+// reliable (>= 20) — a short sample that simply has not crossed a weekend
+// yet falls back to the traditional (safe default) weekday assumption
+// rather than being misread as a 24/7 market.
 function inferFrequency(dates) {
   const ts = dates.map((d) => Date.parse(d)).filter(Number.isFinite);
   if (ts.length < 3) return { frequency: "daily", periodsPerYear: 252, confident: false };
@@ -117,14 +128,21 @@ function inferFrequency(dates) {
     if (g > 0) gaps.push(g);
   }
   if (gaps.length === 0) return { frequency: "daily", periodsPerYear: 252, confident: false };
-  gaps.sort((a, b) => a - b);
-  const med = gaps[Math.floor(gaps.length / 2)];
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)];
   let frequency;
   if (med <= 4) frequency = "daily";
   else if (med <= 10) frequency = "weekly";
   else if (med <= 45) frequency = "monthly";
   else if (med <= 120) frequency = "quarterly";
   else frequency = "annual";
+
+  if (frequency === "daily" && gaps.length >= 20) {
+    const oneDayFraction = gaps.filter((g) => g <= 1.5).length / gaps.length;
+    if (oneDayFraction >= 0.9) {
+      return { frequency: "daily-365", periodsPerYear: 365, confident: true, medianGapDays: med };
+    }
+  }
   return { frequency, periodsPerYear: PERIODS[frequency], confident: true, medianGapDays: med };
 }
 

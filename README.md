@@ -9,7 +9,7 @@ hidden.
 ## Quick start
 
 ```bash
-# everything: 446 assertions, the browser bundle, and every documented number
+# everything: 460 assertions, the browser bundle, and every documented number
 npm run verify
 
 # or individually
@@ -22,6 +22,10 @@ npm run verify:findings     # regenerates every number in this file
 # returns an anti-bot JavaScript challenge instead of data for any non-browser
 # client — alphavantage (free key from alphavantage.co) is what actually works:
 node fetch-market-data.js --source=alphavantage --tickers=SPY,AGG,GLD --key=YOUR_KEY --out=prices.csv
+
+# or crypto, via Tiingo (free token from tiingo.com/account/api/token) —
+# inferFrequency auto-detects the 365-day calendar, annualizing correctly
+node fetch-market-data.js --source=tiingocrypto --tickers=btcusd,ethusd --key=YOUR_TOKEN --out=crypto.csv
 
 # estimate model inputs from it
 node -e "const D=require('./data-pipeline.js'), fs=require('fs');
@@ -43,11 +47,11 @@ Or load the CSV directly into the dashboard, which runs the same pipeline in the
 | `data-pipeline.js` | Estimation. Price CSV to annualized mu/Sigma, including data-driven Ledoit-Wolf shrinkage. Zero dependencies. |
 | `fetch-market-data.js` | Downloads price history into the CSV format the pipeline expects. Run locally with your own key. |
 | `portfolio-core.test.js` | 171 assertions |
-| `data-pipeline.test.js` | 65 assertions |
+| `data-pipeline.test.js` | 68 assertions |
 | `backtest.js` | Walk-forward out-of-sample testing. Zero dependencies. |
 | `scenarios.js` | Generators for non-stationary markets and a controllable-informativeness leading signal. |
 | `fetch-news-sentiment.js` | Downloads per-ticker news sentiment into the JSON format the sentiment strategy expects. Run locally with your own key. |
-| `fetch-market-data.test.js` | 56 assertions |
+| `fetch-market-data.test.js` | 67 assertions |
 | `backtest.test.js` | 50 assertions |
 | `scenarios.test.js` | 38 assertions |
 | `black-litterman.test.js` | 29 assertions |
@@ -61,7 +65,7 @@ Or load the CSV directly into the dashboard, which runs the same pipeline in the
 
 ## Verification status
 
-**446 assertions across eight suites, all passing**, plus a bundle runtime check that executes the
+**460 assertions across eight suites, all passing**, plus a bundle runtime check that executes the
 browser build end to end and a reproduction script that regenerates all 45 numbers quoted below.
 
 - The QP satisfies full KKT optimality — two-sided bound conditions plus non-negative group multipliers and complementary slackness — across 41 risk-tolerance levels and 800 randomized problems, half of them with random, sometimes overlapping group constraints
@@ -93,6 +97,12 @@ Kept in full, because a test suite that never embarrasses its author is not bein
 **4. A second measurement bug that produced a convincing false finding.** This is the instructive one. The sensitivity analysis reported that position limits *tripled* weight turnover under estimation error, and a persuasive mechanism was available: caps force more assets into the portfolio, so more of them react to noise, and more binding constraints means the binding set flips more often. Every part of that story is plausible. It was also wrong. The baseline inside `sensitivityAnalysis` was being computed *without* the bounds, so constrained portfolios were being compared against an unconstrained portfolio they could never match. With the baseline corrected, limits modestly *reduce* turnover (6.2% versus 7.5%) as well as improving diversification. A mechanism that explains a number is not evidence that the number is right.
 
 Two test *expectations* were also wrong and were corrected rather than loosened: one demanded accuracy better than the statistical standard error permits, and one generated synthetic data whose covariance exactly matched the shrinkage target, making a shrinkage intensity of 1.0 the correct answer rather than a failure.
+
+**5. A dashboard feature that never actually worked, missed by its own verification script.** `portfolio-optimizer.jsx` claimed to inline `data-pipeline.js` and `backtest.js` alongside `portfolio-core.js` (section 3j). It inlined only the latter. CSV import and the entire out-of-sample tab threw `estimateFromCSV is not defined` on first use — not a regression, never functional. `bundle-runtime-check.js`, whose stated purpose is exactly to catch this kind of wiring bug, never caught it, because it independently re-implements the same three files as its own copy and tests that copy, never reading `portfolio-optimizer.jsx` at all. Its "BUNDLE RUNTIME OK" was verifying itself. Found by live-testing the actual dashboard in a browser — the one verification path nothing in the automated suite covered. Fixed by properly inlining both files (which required removing a Node/browser `require` indirection layer in `backtest.js` designed for running standalone, not for a scope where everything is already inlined together — left in place, it silently redeclared two of `portfolio-core.js`'s real functions as broken proxies) and by teaching `bundle-runtime-check.js` to extract and execute `portfolio-optimizer.jsx`'s real source via Node's `vm` module, so a future divergence between the dashboard and its own verification script fails loudly instead of passing quietly.
+
+**6. Silently wrong annualization for a 24/7 market.** Added when testing whether crypto (via a new Tiingo source, `--source=tiingocrypto`) could be fed through the pipeline "without destroying the math." It couldn't, silently: `inferFrequency` treated any daily-cadence series as a 252-day weekday market unconditionally — the only calendar this project had ever tested against. Fed real BTC/ETH price history, the pipeline reported annualized return and volatility using 252 instead of the correct 365, understating BTC's true annualized return by 15 percentage points (33.5% reported vs. 48.5% correct) and volatility by over 11 points (56.5% vs. 67.9%) on live data. A median-gap-of-1-day alone cannot distinguish "weekday market" from "trades every day," so the fix instead checks what *fraction* of gaps are exactly 1 day: a weekday market has a 3-day weekend gap roughly one week in five, a 24/7 calendar has almost none. Guarded to require at least 20 gaps before applying, so a short sample that simply has not crossed a weekend yet is not misread as crypto. This one function is duplicated three times in this codebase (`data-pipeline.js`, `bundle-runtime-check.js`'s copy, and `portfolio-optimizer.jsx`'s inlined copy) and all three needed the identical fix — itself a small case of the risk bug #5 above is really about.
+
+The fix itself briefly broke three of the numbers quoted in section 3f, caught immediately by `reproduce-findings.js` exactly as it is meant to: several existing tests and `reproduce-findings.js`'s own position-limit fixture generate synthetic price series over fully-consecutive calendar dates (weekends included) to represent ordinary stock/bond data, which the new fraction-of-1-day-gaps check correctly, if inconveniently, identified as looking like a 24/7 market. The right fix was the data, not the detector: those fixtures now generate real weekday-only dates, which is what they were always supposed to represent.
 
 ## 1. Problem setup
 
@@ -612,9 +622,23 @@ histories. Presenting the number without that range would misrepresent what a si
 anyone.
 
 Everything runs in the browser. `portfolio-core.js`, `data-pipeline.js`, and `backtest.js` are the same
-files the test suites exercise in Node — the dashboard inlines them rather than reimplementing anything,
-and `bundle-runtime-check.js` executes the bundled copies to confirm the inlining did not break the
-wiring between them.
+files the test suites exercise in Node — the dashboard inlines them rather than reimplementing anything.
+
+**A real defect this claim used to be wrong about.** Until 2026-09, that last sentence was aspirational,
+not true: `portfolio-optimizer.jsx` inlined `portfolio-core.js` but never actually inlined
+`data-pipeline.js` or `backtest.js` — CSV import and the entire out-of-sample tab threw
+`estimateFromCSV is not defined` the moment either was used. This went undetected because
+`bundle-runtime-check.js` never read `portfolio-optimizer.jsx` at all: it independently re-implements the
+same three files as its own hand-maintained copy and tests *that*, so its "BUNDLE RUNTIME OK" kept
+passing throughout — proving its own duplicate was wired correctly while saying nothing about the real
+dashboard file. Found by live-testing the dashboard in an actual browser (simulating a file upload via a
+synthetic `DataTransfer`, since setting a file input's value is blocked), not by any existing test. Fixed
+by properly inlining both files into `portfolio-optimizer.jsx` (stripping the Node/browser `require`
+indirection in `backtest.js`'s copy, which does not apply inside a single already-inlined scope, and
+fixing two identifier collisions it caused), and by adding a section to `bundle-runtime-check.js` that
+extracts and executes `portfolio-optimizer.jsx`'s actual source via Node's `vm` module, so this
+specific class of bug — the file claiming to test something that isn't the real file — cannot recur
+silently again.
 
 ## 3k. Transaction costs inside the objective
 

@@ -194,10 +194,16 @@ function buildEstimatedFixture() {
     mu, vols: cov.map((r, i) => Math.sqrt(r[i])),
     corr: cov.map((row, i) => row.map((v, j) => v / Math.sqrt(cov[i][i] * cov[j][j]))),
   });
+  // Weekday-only dates (skipping Sat/Sun), matching a real stock market
+  // calendar: a fully-consecutive (weekend-inclusive) series here is
+  // misread by inferFrequency as a 24/7 market (365 periods/year) rather
+  // than the 252-day weekday calendar this 5-asset universe represents.
   let csv = "Date,Equity,Bonds,SmallCap,Intl,Gold\n";
-  sc.prices.forEach((row, t) => {
-    csv += new Date(Date.UTC(2016, 0, 1) + t * 86400000).toISOString().slice(0, 10) +
-           "," + row.map((v) => v.toFixed(4)).join(",") + "\n";
+  const cur = new Date(Date.UTC(2016, 0, 1));
+  sc.prices.forEach((row) => {
+    while (cur.getUTCDay() === 0 || cur.getUTCDay() === 6) cur.setUTCDate(cur.getUTCDate() + 1);
+    csv += cur.toISOString().slice(0, 10) + "," + row.map((v) => v.toFixed(4)).join(",") + "\n";
+    cur.setUTCDate(cur.getUTCDate() + 1);
   });
   const est = D.estimateFromCSV(csv, { estimator: "ledoit-wolf" });
   const uiVols = est.vols.map((v) => Math.round(v * 10000) / 100);

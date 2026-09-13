@@ -160,6 +160,59 @@ section("Tiingo response parsing");
   ok("valid rows around the bad ones survive", m.get("2024-01-02") === 100 && m.get("2024-01-08") === 105);
 }
 
+// ---------------------------------------------------------------- Tiingo crypto
+section("Tiingo crypto response parsing");
+{
+  // Shape recorded from a live call in 2026-09: an array with one entry PER
+  // TICKER (even for a single ticker), each holding a nested priceData array
+  // — a different shape from the equities endpoint's flat array.
+  const body = JSON.stringify([
+    {
+      ticker: "btcusd", baseCurrency: "btc", quoteCurrency: "usd",
+      priceData: [
+        { date: "2024-01-02T00:00:00+00:00", close: 44974.05 },
+        { date: "2024-01-03T00:00:00+00:00", close: 42862.35 },
+      ],
+    },
+  ]);
+  const m = F.parseTiingoCryptoJSON(body, 200, "btcusd");
+  ok("reads the close price", m.get("2024-01-02") === 44974.05);
+  ok("date is truncated to YYYY-MM-DD", m.has("2024-01-03") && !m.has("2024-01-03T00:00:00+00:00"));
+  ok("accepts an already-parsed object as well as a string",
+    F.parseTiingoCryptoJSON(JSON.parse(body), 200, "btcusd").size === 2);
+}
+{
+  // Measured live (2026-09): an unknown ticker is HTTP 200 with an EMPTY
+  // array — unlike the equities endpoint's 404 + detail for the same case.
+  ok("an unknown ticker (empty array) is surfaced, not silently treated as zero rows",
+    throwsWith(() => F.parseTiingoCryptoJSON("[]", 200, "notarealcoin"), "check the format"));
+  ok("an entry with no priceData is rejected",
+    throwsWith(() => F.parseTiingoCryptoJSON(JSON.stringify([{ ticker: "btcusd" }]), 200, "btcusd"), "no price data"));
+  ok("an entry with an empty priceData array is rejected",
+    throwsWith(() => F.parseTiingoCryptoJSON(JSON.stringify([{ ticker: "btcusd", priceData: [] }]), 200, "btcusd"), "no price data"));
+  ok("a real HTTP error status surfaces Tiingo's detail message",
+    throwsWith(() => F.parseTiingoCryptoJSON(JSON.stringify({ detail: "Please supply a token" }), 403, "btcusd"), "supply a token"));
+  ok("non-JSON is rejected clearly",
+    throwsWith(() => F.parseTiingoCryptoJSON("<html>502 Bad Gateway</html>", 502, "btcusd"), "non-json"));
+  ok("a 200 response that isn't an array is rejected",
+    throwsWith(() => F.parseTiingoCryptoJSON(JSON.stringify({ not: "an array" }), 200, "btcusd"), "not an array"));
+}
+{
+  const body = JSON.stringify([{
+    ticker: "btcusd",
+    priceData: [
+      { date: "2024-01-02T00:00:00+00:00", close: 100 },
+      { date: "2024-01-03T00:00:00+00:00", close: null },
+      { date: "2024-01-04T00:00:00+00:00", close: 0 },
+      { date: "2024-01-05T00:00:00+00:00", close: -5 },
+      { date: "2024-01-08T00:00:00+00:00", close: 105 },
+    ],
+  }]);
+  const m = F.parseTiingoCryptoJSON(body, 200, "btcusd");
+  ok("null, zero and negative prices are all dropped", m.size === 2, `kept ${[...m.keys()].join(",")}`);
+  ok("valid rows around the bad ones survive", m.get("2024-01-02") === 100 && m.get("2024-01-08") === 105);
+}
+
 // ---------------------------------------------------------------- alignment
 section("Date alignment across tickers");
 {
@@ -203,16 +256,24 @@ section("CSV output feeds the pipeline");
   ok("prices survive the round trip", parsed.prices[1][0] === 101 && parsed.prices[1][1] === 50.5);
 }
 {
-  // Full round trip on enough data to actually estimate from.
+  // Full round trip on enough data to actually estimate from. Weekday-only
+  // dates (skipping Sat/Sun), matching a real stock market calendar — a
+  // fully-consecutive (weekend-inclusive) series would be misread as a
+  // 24/7 market by inferFrequency's 365-day detection, same as a stock
+  // ticker's data never should be.
   const n = 300;
   const spy = new Map(), agg = new Map();
   let p1 = 400, p2 = 100;
-  for (let i = 0; i < n; i++) {
-    const d = new Date(Date.UTC(2023, 0, 1 + i)).toISOString().slice(0, 10);
+  let i = 0;
+  for (let d = new Date(Date.UTC(2023, 0, 1)); spy.size < n; d.setUTCDate(d.getUTCDate() + 1)) {
+    const day = d.getUTCDay();
+    if (day === 0 || day === 6) continue;
+    const ds = d.toISOString().slice(0, 10);
     p1 *= 1 + (Math.sin(i * 1.7) * 0.01);
     p2 *= 1 + (Math.cos(i * 2.3) * 0.003);
-    spy.set(d, Math.round(p1 * 100) / 100);
-    agg.set(d, Math.round(p2 * 100) / 100);
+    spy.set(ds, Math.round(p1 * 100) / 100);
+    agg.set(ds, Math.round(p2 * 100) / 100);
+    i++;
   }
   const series = [{ ticker: "SPY", series: spy }, { ticker: "AGG", series: agg }];
   const csv = F.buildCSV(series, F.alignSeries(series));

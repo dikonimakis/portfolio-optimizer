@@ -149,9 +149,14 @@ section("Return computation");
 // ---------------------------------------------------------------- frequency
 section("Frequency inference");
 {
-  const daily = [];
-  for (let i = 0; i < 30; i++) daily.push(new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10));
-  ok("detects daily data", D.inferFrequency(daily).periodsPerYear === 252);
+  // A realistic weekday-only (stock market) calendar: skips Saturday/Sunday,
+  // so roughly one gap in five is a 3-day weekend jump, not just 1-day gaps.
+  const weekdaysOnly = [];
+  for (let d = new Date(Date.UTC(2020, 0, 1)); weekdaysOnly.length < 260; d.setUTCDate(d.getUTCDate() + 1)) {
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) weekdaysOnly.push(d.toISOString().slice(0, 10));
+  }
+  ok("detects daily (weekday-market) data", D.inferFrequency(weekdaysOnly).periodsPerYear === 252);
 
   const monthly = [];
   for (let i = 0; i < 24; i++) monthly.push(new Date(Date.UTC(2020, i, 1)).toISOString().slice(0, 10));
@@ -160,6 +165,26 @@ section("Frequency inference");
   const weekly = [];
   for (let i = 0; i < 30; i++) weekly.push(new Date(Date.UTC(2020, 0, 1 + i * 7)).toISOString().slice(0, 10));
   ok("detects weekly data", D.inferFrequency(weekly).periodsPerYear === 52);
+
+  // A genuine 24/7 calendar (crypto): every consecutive calendar day present,
+  // including weekends. Median gap is also exactly 1 day, same as the
+  // weekday case above -- the two are distinguished by what FRACTION of
+  // gaps are 1 day, not by the median, which is why this needed its own test
+  // rather than trusting the weekday-market test to cover it.
+  const daily365 = [];
+  for (let i = 0; i < 260; i++) daily365.push(new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10));
+  const freq365 = D.inferFrequency(daily365);
+  ok("a 24/7 calendar (e.g. crypto) is detected as 365 periods/year, not 252",
+    freq365.periodsPerYear === 365, `got ${freq365.periodsPerYear}`);
+  ok("the 365-day classification is still marked confident", freq365.confident === true);
+
+  // Guards against a false positive: a short weekday sample that simply
+  // has not crossed a weekend yet must NOT be misread as a 24/7 market --
+  // it falls back to the traditional (safe default) weekday assumption.
+  const shortRun = [];
+  for (let i = 0; i < 5; i++) shortRun.push(new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10)); // Wed-Sun
+  ok("a short run that hasn't crossed enough gaps yet defaults to the weekday assumption, not 365",
+    D.inferFrequency(shortRun).periodsPerYear === 252);
 }
 
 // ---------------------------------------------------------------- estimator accuracy

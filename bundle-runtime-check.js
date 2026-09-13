@@ -1349,14 +1349,21 @@ function inferFrequency(dates) {
     if (g > 0) gaps.push(g);
   }
   if (gaps.length === 0) return { frequency: "daily", periodsPerYear: 252, confident: false };
-  gaps.sort((a, b) => a - b);
-  const med = gaps[Math.floor(gaps.length / 2)];
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)];
   let frequency;
   if (med <= 4) frequency = "daily";
   else if (med <= 10) frequency = "weekly";
   else if (med <= 45) frequency = "monthly";
   else if (med <= 120) frequency = "quarterly";
   else frequency = "annual";
+
+  if (frequency === "daily" && gaps.length >= 20) {
+    const oneDayFraction = gaps.filter((g) => g <= 1.5).length / gaps.length;
+    if (oneDayFraction >= 0.9) {
+      return { frequency: "daily-365", periodsPerYear: 365, confident: true, medianGapDays: med };
+    }
+  }
   return { frequency, periodsPerYear: PERIODS[frequency], confident: true, medianGapDays: med };
 }
 
@@ -2117,6 +2124,73 @@ try{
   check("maxSharpeLongOnly (constrained path) exposes the flag in the bundle",
     typeof msB.approximate === "boolean");
 }catch(e){ check("approximate-flag propagation runs in the bundle", false, e.message); }
+
+console.log("\n--- portfolio-optimizer.jsx: verifying the ACTUAL dashboard file, not a copy ---");
+// Everything above this point re-implements portfolio-core.js/data-pipeline.js/
+// backtest.js independently of portfolio-optimizer.jsx, so it can never catch a
+// wiring bug in the real dashboard file — which is exactly what happened here:
+// portfolio-optimizer.jsx never actually inlined data-pipeline.js or backtest.js
+// at all (estimateFromCSV, walkForward etc. were simply undefined), yet this
+// file's "BUNDLE RUNTIME OK" kept passing throughout, because it was only ever
+// testing its own hand-maintained duplicate above. This section instead reads
+// the real portfolio-optimizer.jsx source, extracts its plain-JS portion (the
+// part before the "React application" marker — pure JS, no JSX, so it can run
+// directly under Node), and executes THAT to confirm the actual file works.
+try {
+  const fs = require("fs");
+  const path = require("path");
+  const vm = require("vm");
+  const jsxPath = path.join(__dirname, "portfolio-optimizer.jsx");
+  const src = fs.readFileSync(jsxPath, "utf8");
+  const endMarker = "// React application";
+  const endIdx = src.indexOf(endMarker);
+  if (endIdx < 0) throw new Error(`Could not find "${endMarker}" marker — has portfolio-optimizer.jsx's structure changed?`);
+  // Skip the leading `import ... from "react"/"recharts"` lines: they are ES
+  // module syntax, which vm.runInContext (a classic script, not a module)
+  // cannot execute, and the extracted logic below does not need them.
+  const startMarker = "const EPS = 1e-10;";
+  const startIdx = src.indexOf(startMarker);
+  if (startIdx < 0) throw new Error(`Could not find "${startMarker}" — has portfolio-core.js's inlined start point changed?`);
+  const required = [
+    "minVarianceLongOnly", "maxSharpeLongOnly", "buildCovariance", "blackLitterman", "sentimentViews",
+    "parsePriceCSV", "estimateFromCSV", "inferFrequency",
+    "walkForward", "compareStrategies", "STRATEGIES",
+  ];
+  // vm.runInContext attaches top-level `function` declarations to the
+  // sandbox object automatically, but NOT top-level `const`/`let` bindings
+  // (e.g. STRATEGIES, PERIODS) — those stay in a lexical scope invisible from
+  // outside. An epilogue that assigns them onto `this` (the context's global
+  // object, from inside the same script) makes them visible afterward too.
+  const epilogue = "\n" + required.map((name) => `if (typeof ${name} !== "undefined") { this.${name} = ${name}; }`).join("\n");
+  const coreSrc = src.slice(startIdx, endIdx) + epilogue;
+
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(coreSrc, sandbox, { filename: "portfolio-optimizer.jsx (extracted, pre-React portion)" });
+  const missing = required.filter((name) => typeof sandbox[name] === "undefined");
+  check("portfolio-optimizer.jsx actually defines all expected functions (not just this file's copy)",
+    missing.length === 0, missing.length ? `missing: ${missing.join(", ")}` : "");
+
+  // A real smoke test against the dashboard's OWN extracted code.
+  const smokeCsv = "Date,A,B\n" + Array.from({ length: 300 }, (_, t) => {
+    const d = new Date(Date.UTC(2020, 0, 1 + t)).toISOString().slice(0, 10);
+    return `${d},${(100 * (1 + t * 0.0005)).toFixed(4)},${(50 * (1 + t * 0.0003)).toFixed(4)}`;
+  }).join("\n");
+
+  const est2 = sandbox.estimateFromCSV(smokeCsv);
+  check("the dashboard's own estimateFromCSV runs and parses names correctly",
+    !!est2 && est2.names.join(",") === "A,B");
+
+  const parsed2 = sandbox.parsePriceCSV(smokeCsv);
+  const bt2 = sandbox.compareStrategies(parsed2.prices, parsed2.dates, [
+    { name: "Equal weight", strategy: "equal" },
+    { name: "Min variance", strategy: "minvar" },
+  ], { lookback: 100, rebalanceEvery: 21 });
+  check("the dashboard's own walkForward/compareStrategies runs and produces metrics",
+    bt2.every((r) => r.metrics), bt2.filter((r) => !r.metrics).map((r) => `${r.name}: ${r.error}`).join("; "));
+} catch (e) {
+  check("portfolio-optimizer.jsx's real source could be extracted and executed", false, e.message);
+}
 
 console.log("\n"+(failures===0?"BUNDLE RUNTIME OK":failures+" FAILURES"));
 process.exit(failures?1:0);
