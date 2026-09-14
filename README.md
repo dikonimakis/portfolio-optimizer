@@ -871,48 +871,48 @@ skepticism about this tool's edge in practice.
 Reproduce with `node fetch-market-data.js --source=tiingo --tickers=XLK,XLF,XLE,XLV,XLY,XLP,XLI,XLB,XLU,XLRE
 --key=YOUR_TOKEN --adjusted --out=prices_sectors.csv` followed by `node run-real-backtest.js prices_sectors.csv`.
 
-### A third real universe, chosen to be maximally different: two volatile, correlated crypto assets
+### A third real universe, chosen to be maximally different: volatile, correlated crypto assets
 
 Section 3l already measured that an external signal has to be genuinely informative to help, on
 synthetic data. The natural real-data question this project's own crypto integration (`--source=tiingocrypto`)
-makes possible: how do these same four strategies behave on an asset class with far higher volatility,
-far less history, and — with only two assets — essentially no room for diversification at all? BTC and
-ETH, common history **2016-09-14 to 2026-09-14 (~10.0 years, 3,647 daily observations)**, `inferFrequency`
-correctly detecting the 365-day calendar (section "What the tests caught," bug #6) rather than the 252
-default that would have understated every figure below.
+makes possible: how do these same four strategies behave on an asset class with far higher volatility and
+far less history? BTC, ETH, LTC, and XRP — common history **2016-09-14 to 2026-09-14 (~10.0 years, 3,647
+daily observations)**, `inferFrequency` correctly detecting the 365-day calendar (section "What the tests
+caught," bug #6) rather than the 252 default that would have understated every figure below.
 
 | Lookback | 1/N Sharpe | Min-variance Sharpe | Max Sharpe | Max Sharpe, capped |
 |---|---|---|---|---|
-| 250 days | 0.668 | 0.641 | 0.573 | 0.653 (60% cap) |
-| 500 days | 0.286 | 0.259 | 0.212 | **0.310** (60% cap) |
-| 1000 days | 0.553 | **0.600** | 0.333 | 0.533 (60% cap) |
+| 250 days | 0.574 | **0.876** | 0.570 | 0.436 (35% cap) |
+| 500 days | 0.185 | **0.371** | 0.057 | 0.079 (35% cap) |
+| 1000 days | 0.404 | **0.615** | 0.240 | 0.295 (35% cap) |
 
-**Unconstrained maximum Sharpe is the worst strategy at every lookback** — the opposite of the five-asset
-finding above, where it was the best. With only two highly-correlated, extremely volatile assets, chasing
-the trailing Sharpe-maximizing weight produces high turnover (up to 8.8%, against 1/N's ~2.7%) with no
-real diversification to fall back on when the estimate is wrong — which, per section 3i's own signal-to-noise
-argument, it usually is. Minimum variance — which ignores the expected-return estimate entirely — does
-surprisingly well, beating even 1/N outright at the longest lookback. Drawdowns are brutal across every
-strategy (−76% to −89%), dwarfing anything in the equity tests; 2018 and 2022 are directly visible in
-these numbers.
+**Minimum variance wins outright at every single lookback**, by a wide margin — the clearest ranking of
+any real-data test in this project. Both maximum-Sharpe variants, capped and uncapped, are consistently
+weaker than even naive 1/N. With four real, correlated-but-distinct cryptocurrencies (a two-asset version
+of this same test showed a similar pattern but far less cleanly, see the git history for that earlier
+result), there is enough genuine diversification for minimum variance's risk-only approach to matter, but
+apparently not enough signal in the mean-return estimates for either Sharpe-seeking strategy to exploit —
+consistent with section 3i's signal-to-noise argument, and a sharper illustration of it than the equity
+tests produced. Drawdowns are severe across every strategy (−76% to −91%), dwarfing anything in the equity
+tests; 2018 and 2022 are directly visible in these numbers.
 
-**A methodology bug this test itself caught, worth keeping in the record.** The first run of this test used
-the same fixed 30% position cap as the five- and ten-asset tests above. For a 2-asset universe that is not
-a stricter constraint — it is infeasible outright, since `2 × 30% = 60%` cannot reach full investment. The
-"capped" strategy failed to solve at **every single rebalance** (confirmed: 162/162) and silently fell back
-to prior/equal weights throughout, producing a low-turnover, plausible-looking row that was not a real
-result. Nothing in the output table itself signaled this — it was only visible by checking
-`estimationFailures` directly. `run-real-backtest.js` now scales the cap to the universe size and prints a
-loud warning if any strategy fails to solve at every rebalance, rather than silently reporting the
-fallback as if it were an answer.
+**A methodology bug this test itself caught, worth keeping in the record.** The first version of this test
+used only two assets (BTC/ETH) with the same fixed 30% position cap as the five- and ten-asset tests
+above. For a 2-asset universe that is not a stricter constraint — it is infeasible outright, since
+`2 × 30% = 60%` cannot reach full investment. The "capped" strategy failed to solve at **every single
+rebalance** (confirmed: 162/162) and silently fell back to prior/equal weights throughout, producing a
+low-turnover, plausible-looking row that was not a real result. Nothing in the output table itself
+signaled this — it was only visible by checking `estimationFailures` directly. `run-real-backtest.js` now
+scales the cap to the universe size (35% for this 4-asset case) and prints a loud warning if any strategy
+fails to solve at every rebalance, rather than silently reporting the fallback as if it were an answer.
 
 **What this does and does not establish**, same as the two tests above: one realized historical path for
-one specific two-asset universe, not a general claim about optimizing crypto portfolios. It is also the
-sample loaded by the dashboard's "BTC / ETH — real daily prices" quick-load button (section 3j) — anyone
-using that button is looking at exactly this data, not a synthetic stand-in.
+one specific four-asset universe, not a general claim about optimizing crypto portfolios. It is also the
+sample loaded by the dashboard's "BTC / ETH / LTC / XRP — real daily prices" quick-load button (section
+3j) — anyone using that button is looking at exactly this data, not a synthetic stand-in.
 
-Reproduce with `node fetch-market-data.js --source=tiingocrypto --tickers=btcusd,ethusd --key=YOUR_TOKEN
---out=crypto.csv` followed by `node run-real-backtest.js crypto.csv`.
+Reproduce with `node fetch-market-data.js --source=tiingocrypto --tickers=btcusd,ethusd,ltcusd,xrpusd
+--key=YOUR_TOKEN --out=crypto.csv` followed by `node run-real-backtest.js crypto.csv`.
 
 ## Reproducing the numbers
 

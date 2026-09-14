@@ -2709,7 +2709,7 @@ export default function PortfolioOptimizer() {
                       disabled={sampleLoading === "crypto"}
                       className="w-full rounded-sm border border-neutral-800 px-2.5 py-2 text-left text-[11px] text-neutral-400 hover:border-[#c98fb0] hover:text-[#c98fb0] disabled:opacity-50"
                     >
-                      {sampleLoading === "crypto" ? "Loading…" : "BTC / ETH — real daily prices, 2016–2026"}
+                      {sampleLoading === "crypto" ? "Loading…" : "BTC / ETH / LTC / XRP — real daily prices, 2016–2026"}
                     </button>
                     <div className="mt-1 text-[10px] leading-snug text-neutral-600">
                       Fetched once via Tiingo and shipped with this page — not a live call, no key
