@@ -2101,7 +2101,7 @@ try{
   check("Phase 1 feasibility search runs in the bundle", f.feasible);
 }catch(e){ check("Phase 1 feasibility search runs in the bundle", false, e.message); }
 
-console.log("\n--- browser path: Black-Litterman / sentiment (not yet wired into the UI, but must work if embedded) ---");
+console.log("\n--- browser path: Black-Litterman / sentiment (now wired into the dashboard UI, section 3j) ---");
 try{
   const mu0 = [0.08];
   const {P, Q, omega} = sentimentViews(mu0, [0.36], [2], {tiltPerUnit: 0.1512});

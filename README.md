@@ -611,8 +611,9 @@ correct code, measured correctly, can still support a false conclusion.**
 Two views over the same model.
 
 **Efficient frontier** — assets, correlations with live positive-semi-definite validation, shrinkage
-controls, position and group limits, the constrained and unconstrained frontiers, optimal portfolios,
-and the sensitivity panel.
+controls, an optional sentiment tilt (Black-Litterman, section 3l) with a per-asset score and a live
+readout of the resulting posterior shift, position and group limits, the constrained and unconstrained
+frontiers, optimal portfolios, and the sensitivity panel.
 
 **Out-of-sample test** — available once a price CSV is loaded. Runs the walk-forward backtest from
 section 3h with the position and group limits applied at every rebalance, and charts growth of 1 against
@@ -985,7 +986,6 @@ eigenvalues of near-degenerate covariance) that matter here.
 - Capital allocation line with a user-selected target risk level
 - Factor-model covariance estimation as an alternative to constant-correlation shrinkage
 - Automatic corporate-action adjustment rather than heuristic flagging
-- Wiring `blackLitterman`/`sentimentViews` into the dashboard UI directly (currently API-level only, exercised through the backtest and test suites, not yet exposed as an interactive control)
 
 ## 9. Symbol glossary
 
