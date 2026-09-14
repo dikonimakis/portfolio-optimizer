@@ -2020,7 +2020,10 @@ function formatComparison(results) {
 // React application
 // ============================================================================
 
-const PALETTE = ["#d4a13c", "#3fa796", "#8b7ec8", "#d4685e", "#5b8def", "#7d9aa8", "#c98fb0", "#6fae6f"];
+const PALETTE = [
+  "#d4a13c", "#3fa796", "#8b7ec8", "#d4685e", "#5b8def", "#7d9aa8", "#c98fb0", "#6fae6f",
+  "#c96f4a", "#4a9bc9", "#a8b34a", "#9c6f9e",
+];
 
 const DEFAULT_ASSETS = [
   { name: "US Stocks", ret: 10, vol: 15 },
@@ -2036,6 +2039,29 @@ const DEFAULT_CORR = [
   [0.85, -0.05, 1, 0.55, 0.15],
   [0.60, 0.10, 0.55, 1, 0.20],
   [0.10, 0.20, 0.15, 0.20, 1],
+];
+
+// Three genuinely different slices of the current market, all real data
+// fetched once via Tiingo (see README section 3m for the full findings on
+// each). Deliberately NOT more illustrative/invented numbers — this project
+// never fabricates return or volatility assumptions, so "more variety" here
+// means more real datasets, not more guesses.
+const SAMPLES = [
+  {
+    key: "broad", file: "sample-broad.csv", accent: "#3fa796",
+    label: "SPY / AGG / EFA / VNQ / GLD — broad asset classes, 2004–2026",
+    note: "US stocks, US bonds, international stocks, REITs, gold. The 22-year test behind README §3m's main real-data finding.",
+  },
+  {
+    key: "sectors", file: "sample-sectors.csv", accent: "#5b8def",
+    label: "10 SPDR sector ETFs — US equity sectors, 2015–2026",
+    note: "Technology, financials, energy, health care, and more. README §3m's sector-ETF test, which complicated rather than confirmed the broad-asset finding.",
+  },
+  {
+    key: "crypto", file: "sample-crypto.csv", accent: "#c98fb0",
+    label: "BTC / ETH / LTC / XRP — real daily prices, 2016–2026",
+    note: "README §3m's crypto test: minimum variance won outright at every lookback tried.",
+  },
 ];
 
 const pct = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
@@ -2492,7 +2518,7 @@ export default function PortfolioOptimizer() {
   }
 
   function addAsset() {
-    if (n >= 8) return;
+    if (n >= 12) return;
     setAssets([...assets, { name: `Asset ${n + 1}`, ret: 7, vol: 12 }]);
     setCorr([...corr.map((r) => [...r, 0]), [...Array(n).fill(0), 1]]);
   }
@@ -2589,8 +2615,8 @@ export default function PortfolioOptimizer() {
     try {
       const est = estimateFromCSV(text, { estimator, method: returnMethod });
       const parsed = parsePriceCSV(text);
-      if (est.names.length > 8) {
-        setImportError(`The file has ${est.names.length} assets; this build handles up to 8. Trim some columns and try again.`);
+      if (est.names.length > 12) {
+        setImportError(`The file has ${est.names.length} assets; this build handles up to 12. Trim some columns and try again.`);
         return;
       }
       applyEstimate(est);
@@ -2685,9 +2711,14 @@ export default function PortfolioOptimizer() {
 
               {!estimation ? (
                 <>
-                  <p className="mb-2.5 text-[11px] leading-snug text-neutral-500">
+                  <p className="mb-1.5 text-[11px] leading-snug text-neutral-500">
                     The figures below are illustrative. Load a price history to estimate them from
                     real data instead.
+                  </p>
+                  <p className="mb-2.5 text-[10px] leading-snug text-neutral-600">
+                    These labels are categories, not tickers — the default weights are what to allocate
+                    to each, not what to buy. The standard, liquid ETF for each: US Stocks → SPY,
+                    US Bonds → AGG, Intl Stocks → VXUS or EFA, REITs → VNQ, Gold → GLD.
                   </p>
                   <label className="block cursor-pointer rounded-sm border border-dashed border-neutral-700 px-3 py-3 text-center text-[11px] text-neutral-400 hover:border-[#3fa796] hover:text-[#3fa796]">
                     Choose a price CSV
@@ -2702,19 +2733,24 @@ export default function PortfolioOptimizer() {
                     Date,SPY,AGG,GLD<br />
                     2020-01-02,321.55,112.30,143.10
                   </div>
-                  <div className="mt-3 border-t border-neutral-800 pt-3">
-                    <div className="mb-1.5 text-[10px] text-neutral-600">Or load a real sample</div>
-                    <button
-                      onClick={() => loadSample("sample-crypto.csv", "crypto")}
-                      disabled={sampleLoading === "crypto"}
-                      className="w-full rounded-sm border border-neutral-800 px-2.5 py-2 text-left text-[11px] text-neutral-400 hover:border-[#c98fb0] hover:text-[#c98fb0] disabled:opacity-50"
-                    >
-                      {sampleLoading === "crypto" ? "Loading…" : "BTC / ETH / LTC / XRP — real daily prices, 2016–2026"}
-                    </button>
-                    <div className="mt-1 text-[10px] leading-snug text-neutral-600">
-                      Fetched once via Tiingo and shipped with this page — not a live call, no key
-                      needed. Same data used for README §3m's crypto backtest findings.
+                  <div className="mt-3 space-y-2.5 border-t border-neutral-800 pt-3">
+                    <div className="text-[10px] text-neutral-600">
+                      Or load a real sample — three different slices of the current market, each
+                      fetched once via Tiingo and shipped with this page. No live call, no key needed.
                     </div>
+                    {SAMPLES.map((s) => (
+                      <div key={s.key}>
+                        <button
+                          onClick={() => loadSample(s.file, s.key)}
+                          disabled={sampleLoading === s.key}
+                          style={{ "--accent": s.accent }}
+                          className="w-full rounded-sm border border-neutral-800 px-2.5 py-2 text-left text-[11px] text-neutral-400 hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+                        >
+                          {sampleLoading === s.key ? "Loading…" : s.label}
+                        </button>
+                        <div className="mt-1 text-[10px] leading-snug text-neutral-600">{s.note}</div>
+                      </div>
+                    ))}
                   </div>
                 </>
               ) : (
@@ -2805,7 +2841,7 @@ export default function PortfolioOptimizer() {
                 <span className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">Assets</span>
                 <button
                   onClick={addAsset}
-                  disabled={n >= 8}
+                  disabled={n >= 12}
                   className="text-[11px] text-[#3fa796] hover:text-[#5fc4b3] disabled:text-neutral-700"
                 >
                   + add asset
