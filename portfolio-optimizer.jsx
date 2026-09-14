@@ -2314,6 +2314,9 @@ export default function PortfolioOptimizer() {
   const [covDelta, setCovDelta] = useState(0);
   const [useBayesStein, setUseBayesStein] = useState(false);
   const [sampleSize, setSampleSize] = useState(120);
+  const [useSentiment, setUseSentiment] = useState(false);
+  const [sentimentTilt, setSentimentTilt] = useState(5);
+  const [sentimentArticles, setSentimentArticles] = useState(10);
   const [perturb, setPerturb] = useState(15);
   const [showSensitivity, setShowSensitivity] = useState(false);
   const [estimation, setEstimation] = useState(null);
@@ -2366,6 +2369,28 @@ export default function PortfolioOptimizer() {
       } catch (e) { /* fall back to raw estimates */ }
     }
 
+    // Sentiment tilt (Black-Litterman): the shrunk historical mean above is
+    // the PRIOR, not the final answer — a per-asset score nudges it without
+    // overwriting it. Applied last, after Bayes-Stein, so it tilts whatever
+    // estimate the rest of the pipeline already produced.
+    let sentimentInfo = null;
+    if (useSentiment) {
+      const scores = assets.map((a) => (a.sentiment === "" || a.sentiment == null ? NaN : Number(a.sentiment)));
+      const counts = assets.map(() => sentimentArticles);
+      try {
+        const { P, Q, omega, covered } = sentimentViews(mu, scores, counts, {
+          tiltPerUnit: sentimentTilt / 100,
+          baseVariance: 0.04,
+        });
+        if (covered.length > 0) {
+          const priorMu = mu;
+          const post = blackLitterman(mu, cov, P, Q, omega, 0.05);
+          sentimentInfo = { covered, priorMu, posteriorMu: post.mu };
+          mu = post.mu;
+        }
+      } catch (e) { /* leave mu untilted */ }
+    }
+
     let analytic = null;
     try { analytic = analyticFrontier(mu, cov, rfDec); } catch (e) { analytic = null; }
 
@@ -2404,9 +2429,9 @@ export default function PortfolioOptimizer() {
       constraintError = /cannot be satisfied|exceeds its maximum|at most|at least|fully invested/.test(e.message);
     }
 
-    return { mu, cov, rfDec, analytic, frontier, maxSharpe, minVar, shrinkInfo, error, constraintError, bounds };
+    return { mu, cov, rfDec, analytic, frontier, maxSharpe, minVar, shrinkInfo, sentimentInfo, error, constraintError, bounds };
   }, [assets, corr, rf, covDelta, useBayesStein, sampleSize, validation.isPSD,
-      useLimits, maxWeight, minWeight, groups]);
+      useLimits, maxWeight, minWeight, groups, useSentiment, sentimentTilt, sentimentArticles]);
 
   const sensitivity = useMemo(() => {
     if (!showSensitivity || model.error || !model.maxSharpe || !model.maxSharpe.weights) return null;
@@ -2762,6 +2787,7 @@ export default function PortfolioOptimizer() {
                 <span className="ml-3.5 flex-1">Name</span>
                 <span className="w-14 text-right">Return %</span>
                 <span className="w-14 text-right">Vol %</span>
+                {useSentiment && <span className="w-14 text-right">Sent.</span>}
               </div>
               <div className="space-y-1.5">
                 {assets.map((a, i) => (
@@ -2787,6 +2813,19 @@ export default function PortfolioOptimizer() {
                       className={`${inputCls} w-14 shrink-0 text-right font-mono`}
                       aria-label={`${a.name} volatility`}
                     />
+                    {useSentiment && (
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="-1"
+                        max="1"
+                        value={a.sentiment ?? ""}
+                        onChange={(e) => updateAsset(i, "sentiment", e.target.value)}
+                        placeholder="—"
+                        className={`${inputCls} w-14 shrink-0 text-right font-mono`}
+                        aria-label={`${a.name} sentiment score`}
+                      />
+                    )}
                     <button
                       onClick={() => removeAsset(i)}
                       disabled={n <= 2}
@@ -2915,6 +2954,62 @@ export default function PortfolioOptimizer() {
                         {model.shrinkInfo.phi === 0
                           ? "Too few observations to shrink reliably — estimates left unchanged."
                           : `Pulling returns ${pct(model.shrinkInfo.phi, 0)} of the way toward ${pct(model.shrinkInfo.muTarget)}.`}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-neutral-800 pt-3">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px] text-neutral-300">
+                  <input
+                    type="checkbox"
+                    checked={useSentiment}
+                    onChange={(e) => setUseSentiment(e.target.checked)}
+                    className="accent-[#c98fb0]"
+                  />
+                  Apply sentiment tilt (Black-Litterman)
+                </label>
+                {useSentiment && (
+                  <div className="mt-2 space-y-2 pl-6">
+                    <div className="text-[10px] leading-snug text-neutral-600">
+                      Score each asset below from -1 (bearish) to +1 (bullish). Blank leaves that
+                      asset's estimate untouched — this tilts the return above, it does not
+                      replace it. A signal has to be genuinely informative to help: this
+                      project's own measurements (README §3l) found a pure-noise signal
+                      measurably <em>hurts</em> performance, and a plausible real-world news
+                      feed's informativeness was still net negative. Only use this with a signal
+                      you have reason to trust.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-32 shrink-0 text-[10px] text-neutral-600">Tilt per unit score</span>
+                      <input
+                        type="number" min="1" max="30" step="1"
+                        value={sentimentTilt}
+                        onChange={(e) => setSentimentTilt(parseFloat(e.target.value) || 0)}
+                        className={`${inputCls} w-16 text-right font-mono`}
+                      />
+                      <span className="text-[10px] text-neutral-600">%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-32 shrink-0 text-[10px] text-neutral-600">Articles per score</span>
+                      <input
+                        type="number" min="1"
+                        value={sentimentArticles}
+                        onChange={(e) => setSentimentArticles(parseInt(e.target.value) || 1)}
+                        className={`${inputCls} w-16 text-right font-mono`}
+                      />
+                    </div>
+                    {model.sentimentInfo && model.sentimentInfo.covered.length > 0 && (
+                      <div className="space-y-0.5 text-[10px] leading-snug text-neutral-500">
+                        {model.sentimentInfo.covered.map((idx) => {
+                          const delta = (model.sentimentInfo.posteriorMu[idx] - model.sentimentInfo.priorMu[idx]) * 100;
+                          return (
+                            <div key={idx}>
+                              {names[idx]}: {delta >= 0 ? "+" : ""}{delta.toFixed(1)}pp
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
