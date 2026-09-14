@@ -50,34 +50,46 @@ In order:
 9. **Built and published a static deployment** of the dashboard as a Claude Artifact
    (`https://claude.ai/code/artifact/45e30a8a-166e-4a5f-a542-4f6fe058a4bc`), replacing the
    Tailwind Play CDN (explicitly not for production) with a properly compiled static build.
-   **Status as of this writing: republished with the fix, not yet confirmed working by the
-   user.** Check this first before doing anything else — if the artifact still doesn't render,
-   that's the actual next task, and there's no way to debug it further from inside this session
-   without the user's own authenticated browser.
+   **Confirmed rendering correctly by the user** after two rounds of blind fixes (this session
+   has no authenticated browser access to the artifact platform, so every fix here was made
+   without being able to see the result directly — the user's confirmation was the first actual
+   look at it).
+10. **Wired sentiment/Black-Litterman into the dashboard UI** — a per-asset score input, a
+    tilt-per-unit control, and a live readout of the resulting posterior shift. Live-verified: a
+    bullish score correctly increased that asset's optimal weight and Sharpe, and left
+    minimum-variance's weights (correctly) unchanged.
+11. **Shipped three real datasets as one-click dashboard samples** (broad asset classes, 10
+    sector ETFs, and 4-asset crypto — all real Tiingo data, not illustrative numbers) so the
+    tool is immediately usable with real market data and no API key required from a visitor.
+    Also raised the dashboard's asset limit from 8 to 12 to fit the sector sample, and added a
+    ticker mapping (US Stocks -> SPY, etc.) so the illustrative category labels resolve to
+    something concretely buyable.
 
 ## Current verified state
 
 - `npm run verify`: 460 assertions across 8 suites, 0 failures, bundle runtime check OK
-  (including a new section that executes `portfolio-optimizer.jsx`'s real source, not a copy),
+  (including a section that executes `portfolio-optimizer.jsx`'s real source, not a copy),
   all 45 documented README claims reproduced and consistent.
-- Git: 4 commits on `master`, working tree clean as of the last commit. No remote configured —
+- Git: 9 commits on `master`, working tree clean as of the last commit. No remote configured —
   this only exists on this machine right now.
-- The dashboard runs and has been live-tested end to end: default illustrative view, CSV
-  upload with a real multi-year price file, and a full walk-forward backtest run, all
-  confirmed working in an actual browser (not just Node).
+- The dashboard runs and has been live-tested end to end: default illustrative view, all three
+  real-data samples, CSV upload, sentiment tilt, and a full walk-forward backtest run — all
+  confirmed working in an actual browser, and the deployed Artifact confirmed rendering
+  correctly by the user directly (not just verified locally).
 
 ## What's still open
 
-- **Confirm the deployed artifact actually renders** (see #9 above). Blocking everything else
-  about "is this shipped."
-- **Sentiment/Black-Litterman is still not wired into the dashboard UI** — it's exercised by
-  tests and the backtest strategy `maxsharpeSentiment`, but there's no control for it in
-  `portfolio-optimizer.jsx`. A real, scoped gap, not a large undertaking.
 - **Cardinality constraints and a regime-aware estimator remain unbuilt.** ASSESSMENT.md's own
   position is not to chase these without a specific reason — they're listed as open, not as a
   backlog to work through by default.
 - **No git remote / no CI.** Everything here is local. If this project needs to survive a
-  machine loss, or needs a review workflow, that's unaddressed.
+  machine loss, or needs a review workflow, that's unaddressed. The user has expressed interest
+  in publishing this (portfolio piece / LinkedIn); pushing to a public GitHub repo has been
+  offered but not done as of this writing.
+- **Commercialization**: ASSESSMENT.md's conclusion stands and nothing this session found
+  contradicts it — publish as a portfolio piece, don't pursue it as a product on current
+  evidence. If revisited, the defensible angle is "know how much to trust your portfolio
+  numbers," not "better portfolios."
 
 ## Working discipline established this session (worth keeping)
 
@@ -89,3 +101,7 @@ In order:
 - A single backtest result — even from real data — was never reported as a finding on its own;
   every real-data claim in this README states plainly that it's one historical path, not a
   replicated statistical result.
+- When a verification step was genuinely outside this session's reach (confirming the deployed
+  Artifact renders, since this session has no authenticated browser access to that platform),
+  the honest move was to say so plainly and ask the user directly, rather than guessing or
+  quietly asserting it probably worked.
