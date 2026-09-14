@@ -2333,6 +2333,7 @@ export default function PortfolioOptimizer() {
   const [backtestError, setBacktestError] = useState(null);
   const [lookback, setLookback] = useState(500);
   const [returnMethod, setReturnMethod] = useState("log");
+  const [sampleLoading, setSampleLoading] = useState(null);
 
   const names = assets.map((a) => a.name);
   const n = assets.length;
@@ -2584,28 +2585,41 @@ export default function PortfolioOptimizer() {
     setImportError(null);
   }
 
+  function loadCSVText(text) {
+    try {
+      const est = estimateFromCSV(text, { estimator, method: returnMethod });
+      const parsed = parsePriceCSV(text);
+      if (est.names.length > 8) {
+        setImportError(`The file has ${est.names.length} assets; this build handles up to 8. Trim some columns and try again.`);
+        return;
+      }
+      applyEstimate(est);
+      setPriceData(parsed);
+      setBacktest(null);
+      setBacktestError(null);
+    } catch (err) {
+      setImportError(err.message || "The file could not be parsed.");
+    }
+  }
+
   function handleFile(file) {
     if (!file) return;
     const reader = new FileReader();
     reader.onerror = () => setImportError("The file could not be read.");
-    reader.onload = (e) => {
-      try {
-        const text = String(e.target.result);
-        const est = estimateFromCSV(text, { estimator, method: returnMethod });
-        const parsed = parsePriceCSV(text);
-        if (est.names.length > 8) {
-          setImportError(`The file has ${est.names.length} assets; this build handles up to 8. Trim some columns and try again.`);
-          return;
-        }
-        applyEstimate(est);
-        setPriceData(parsed);
-        setBacktest(null);
-        setBacktestError(null);
-      } catch (err) {
-        setImportError(err.message || "The file could not be parsed.");
-      }
-    };
+    reader.onload = (e) => loadCSVText(String(e.target.result));
     reader.readAsText(file);
+  }
+
+  function loadSample(path, key) {
+    setSampleLoading(key);
+    fetch(path)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Could not fetch ${path} (HTTP ${r.status}).`);
+        return r.text();
+      })
+      .then((text) => loadCSVText(text))
+      .catch((err) => setImportError(err.message || "The sample could not be loaded."))
+      .finally(() => setSampleLoading(null));
   }
 
   function clearEstimate() {
@@ -2687,6 +2701,20 @@ export default function PortfolioOptimizer() {
                   <div className="mt-2 font-mono text-[9.5px] leading-relaxed text-neutral-600">
                     Date,SPY,AGG,GLD<br />
                     2020-01-02,321.55,112.30,143.10
+                  </div>
+                  <div className="mt-3 border-t border-neutral-800 pt-3">
+                    <div className="mb-1.5 text-[10px] text-neutral-600">Or load a real sample</div>
+                    <button
+                      onClick={() => loadSample("sample-crypto.csv", "crypto")}
+                      disabled={sampleLoading === "crypto"}
+                      className="w-full rounded-sm border border-neutral-800 px-2.5 py-2 text-left text-[11px] text-neutral-400 hover:border-[#c98fb0] hover:text-[#c98fb0] disabled:opacity-50"
+                    >
+                      {sampleLoading === "crypto" ? "Loading…" : "BTC / ETH — real daily prices, 2016–2026"}
+                    </button>
+                    <div className="mt-1 text-[10px] leading-snug text-neutral-600">
+                      Fetched once via Tiingo and shipped with this page — not a live call, no key
+                      needed. Same data used for README §3m's crypto backtest findings.
+                    </div>
                   </div>
                 </>
               ) : (
