@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "C:\\Users\\dikon\\Documents\\portfolio-optimizer\\dashboard-preview"],
+      "port": 5173
+    },
+    {
+      "name": "dist-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "serve", "-l", "4173", "C:\\Users\\dikon\\Documents\\portfolio-optimizer\\dashboard-preview\\dist"],
+      "port": 4173
+    }
+  ]
+}
