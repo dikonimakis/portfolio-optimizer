@@ -1,5 +1,44 @@
 # Efficient Frontier Portfolio Optimizer
 
+**[Try the live demo](https://dikonimakis.github.io/portfolio-optimizer/)** &nbsp;·&nbsp; MIT licensed &nbsp;·&nbsp; 461 automated checks, all passing
+
+![The efficient frontier view, loaded with 22 years of real SPY / AGG / EFA / VNQ / GLD data](docs/dashboard-frontier.png)
+
+## What it does
+
+It helps you decide **how to split money across a set of investments** to get the best return for a
+given amount of risk — the classic Modern Portfolio Theory problem (Markowitz, 1952), solved exactly
+rather than approximated.
+
+Give it a list of assets (stocks, bonds, gold, sector ETFs, crypto — anything with a price history) and
+either your own return and risk assumptions or real price data it estimates from. It returns:
+
+- the **efficient frontier** — the best achievable return at every level of risk
+- the **maximum-Sharpe portfolio** (best return per unit of risk) and the **minimum-volatility portfolio**
+  (safest mix), with the exact percentage for each asset
+- all of it under real-world limits: per-asset caps ("no more than 30% in one holding") and group caps
+  ("at most 60% in equities")
+
+What makes it more than a calculator is that it **measures how much to trust its own answer**: a
+sensitivity panel shows how the portfolio moves if your return estimates are off, covariance shrinkage
+(Ledoit-Wolf) is derived from the data rather than guessed, short histories trigger explicit warnings,
+and a walk-forward backtest compares each strategy against simply splitting money equally, using only
+data that would have been available at the time.
+
+![Walk-forward backtest on 22 years of real data, with the table's own warning to read it with suspicion](docs/dashboard-backtest.png)
+
+**Try it:** open the demo and load one of three built-in real datasets with one click — broad asset
+classes, ten US equity sectors, or four cryptocurrencies. Every number is editable.
+
+**What the real-data tests found:** no single strategy won across all three markets (section 3m below).
+Position-limited optimization was never the worst performer in any of them; unconstrained
+maximum-Sharpe was the best in one market and the worst in another. That inconsistency is the finding,
+and the dashboard says so in its own UI.
+
+This is an analytical tool, not investment advice.
+
+## Technical summary
+
 An implementation of **Modern Portfolio Theory (Markowitz, 1952)** with production-grade numerics:
 long-only portfolios are solved **exactly** by active-set quadratic programming, estimates are built
 from real price history with data-driven shrinkage, portfolios respect real position limits, inputs are
@@ -9,7 +48,7 @@ hidden.
 ## Quick start
 
 ```bash
-# everything: 460 assertions, the browser bundle, and every documented number
+# everything: 461 assertions, the browser bundle, and every documented number
 npm run verify
 
 # or individually
@@ -47,7 +86,7 @@ Or load the CSV directly into the dashboard, which runs the same pipeline in the
 | `data-pipeline.js` | Estimation. Price CSV to annualized mu/Sigma, including data-driven Ledoit-Wolf shrinkage. Zero dependencies. |
 | `fetch-market-data.js` | Downloads price history into the CSV format the pipeline expects. Run locally with your own key. |
 | `portfolio-core.test.js` | 171 assertions |
-| `data-pipeline.test.js` | 68 assertions |
+| `data-pipeline.test.js` | 69 assertions |
 | `backtest.js` | Walk-forward out-of-sample testing. Zero dependencies. |
 | `scenarios.js` | Generators for non-stationary markets and a controllable-informativeness leading signal. |
 | `fetch-news-sentiment.js` | Downloads per-ticker news sentiment into the JSON format the sentiment strategy expects. Run locally with your own key. |
@@ -65,7 +104,7 @@ Or load the CSV directly into the dashboard, which runs the same pipeline in the
 
 ## Verification status
 
-**460 assertions across eight suites, all passing**, plus a bundle runtime check that executes the
+**461 assertions across eight suites, all passing**, plus a bundle runtime check that executes the
 browser build end to end and a reproduction script that regenerates all 45 numbers quoted below.
 
 - The QP satisfies full KKT optimality — two-sided bound conditions plus non-negative group multipliers and complementary slackness — across 41 risk-tolerance levels and 800 randomized problems, half of them with random, sometimes overlapping group constraints

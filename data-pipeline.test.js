@@ -372,6 +372,13 @@ section("Data quality checks");
   const q = D.dataQualityReport(prices, names, ["a", "b", "c", "d"], rets);
   ok("a possible unadjusted split is flagged",
     q.warnings.some((w) => w.includes("split")));
+
+  // The same -50% move on a 24/7 (365-period) market is not a split: crypto
+  // has none, so telling the user to look for one would be misleading.
+  const q365 = D.dataQualityReport(prices, names, ["a", "b", "c", "d"], rets, 365);
+  const extreme365 = q365.warnings.filter((w) => w.includes("moves above 25%"));
+  ok("on a 365-day market a large move is not blamed on stock splits",
+    extreme365.length === 1 && !/split|dividend/i.test(extreme365[0]) && /crypto|24\/7/.test(extreme365[0]));
 }
 
 {

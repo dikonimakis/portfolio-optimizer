@@ -1584,7 +1584,12 @@ function dataQualityReport(prices, names, dates, returns, periodsPerYear = null)
       warnings.push(`${names[i]}: contains ${info.nonPositive} zero or negative prices, which cannot be turned into returns.`);
     }
     if (extreme > 0) {
-      warnings.push(`${names[i]}: ${extreme} single-period moves above 25%. Check for unadjusted stock splits or dividends.`);
+      // A 365-period calendar means a 24/7 market (crypto): there are no
+      // splits or dividends to adjust for, so large moves are usually real.
+      const tail = periodsPerYear === 365
+        ? "On a 24/7 market such as crypto this is often genuine volatility rather than a data error; check the source only if it looks wrong."
+        : "Check for unadjusted stock splits or dividends.";
+      warnings.push(`${names[i]}: ${extreme} single-period moves above 25%. ${tail}`);
     }
   }
 
@@ -2911,12 +2916,12 @@ export default function PortfolioOptimizer() {
                     <tr>
                       <td />
                       {names.map((nm, j) => (
-                        <td key={j} className="px-0.5 pb-1 text-center text-neutral-600">{nm.slice(0, 3)}</td>
+                        <td key={j} className="px-0.5 pb-1 text-center text-neutral-600">{nm.slice(0, 4)}</td>
                       ))}
                     </tr>
                     {corr.map((row, i) => (
                       <tr key={i}>
-                        <td className="pr-1 text-right text-neutral-600">{names[i] ? names[i].slice(0, 3) : ""}</td>
+                        <td className="pr-1 text-right text-neutral-600">{names[i] ? names[i].slice(0, 4) : ""}</td>
                         {row.map((val, j) => (
                           <td key={j} className="p-0.5">
                             {i === j ? (

@@ -1578,7 +1578,12 @@ function dataQualityReport(prices, names, dates, returns, periodsPerYear = null)
       warnings.push(`${names[i]}: contains ${info.nonPositive} zero or negative prices, which cannot be turned into returns.`);
     }
     if (extreme > 0) {
-      warnings.push(`${names[i]}: ${extreme} single-period moves above 25%. Check for unadjusted stock splits or dividends.`);
+      // A 365-period calendar means a 24/7 market (crypto): there are no
+      // splits or dividends to adjust for, so large moves are usually real.
+      const tail = periodsPerYear === 365
+        ? "On a 24/7 market such as crypto this is often genuine volatility rather than a data error; check the source only if it looks wrong."
+        : "Check for unadjusted stock splits or dividends.";
+      warnings.push(`${names[i]}: ${extreme} single-period moves above 25%. ${tail}`);
     }
   }
 

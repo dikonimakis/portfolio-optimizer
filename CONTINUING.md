@@ -67,7 +67,7 @@ In order:
 
 ## Current verified state
 
-- `npm run verify`: 460 assertions across 8 suites, 0 failures, bundle runtime check OK
+- `npm run verify`: 461 assertions across 8 suites, 0 failures, bundle runtime check OK
   (including a section that executes `portfolio-optimizer.jsx`'s real source, not a copy),
   all 45 documented README claims reproduced and consistent.
 - Git: 9 commits on `master`, working tree clean as of the last commit. No remote configured —
